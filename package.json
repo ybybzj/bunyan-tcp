@@ -1,10 +1,10 @@
 {
-  "name": "bunyan-tcp",
+  "name": "bunyan-tcp2",
   "version": "0.9.3",
-  "description": "An adapter stream bunyan events to a TCP socket (with reconnection and buffering)",
+  "description": "An adapter stream bunyan events to a TCP socket (with backoff reconnection and buffering)",
   "repository": {
-    "type" : "git",
-    "url": "https://github.com/zenmoto/bunyan-tcp.git"
+    "type": "git",
+    "url": "https://github.com/ybybzj/bunyan-tcp2.git"
   },
   "main": "index.js",
   "scripts": {
@@ -14,14 +14,14 @@
     "bunyan",
     "tcp"
   ],
-  "author": "David Poncelow <david@balrog.org>",
+  "author": "jackzj <ybybzj@gamil.com>",
   "license": "ISC",
-  "peerDependencies": {
-    "bunyan": "~1.x"
-  },
   "devDependencies": {
     "chai": "^2.2.0",
     "mocha": "^2.2.1",
     "rsvp": "^3.0.18"
+  },
+  "dependencies": {
+    "backoff": "^2.5.0"
   }
 }

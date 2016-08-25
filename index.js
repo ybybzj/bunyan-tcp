@@ -2,7 +2,9 @@ var assert = require('assert');
 var stream = require('stream');
 var util = require('util');
 var net = require('net');
+var backoff = require('backoff');
 var EventEmitter = require('events').EventEmitter;
+
 
 function MessageBuffer(messageCount) {
   this.messageMax = messageCount;
@@ -45,19 +47,63 @@ MessageBuffer.prototype.drain = function(cb) {
   delete old_buffer;
 }
 
+function makeStrategy(opts){
+  opts = opts || {};
+  //opts is a Strategy instance
+  if(isFn(opts.next) && isFn(opts.reset)){
+   return  opts;
+  }
+
+  var name = opts.name;
+
+  if(name === 'fibonacci'){
+    return new backoff.FibonacciStrategy({
+      randomisationFactor: 0,
+      initialDelay: opts.initDelay || 300,
+      maxDelay: opts.maxDelay || 10000
+    });
+  }
+
+  if(name === 'exponential'){
+    return new backoff.ExponentialStrategy({
+      randomisationFactor: 0,
+      initialDelay: opts.initialDelay || 300,
+      maxDelay: opts.maxDelay || 10000,
+      factor: 2
+    });
+  }
+
+  throw new Error('[bunyan-tcp2/strategy]Invalid strategy name! given:'+ name);
+
+}
+
 function BunyanTcpStream(args) {
   assert(args.server, "Must define a server");
   assert(args.port, "Must supply a port");
+  var self = this;
   this.server = args.server;
   this.port = args.port;
-  this.reconnectDelay = args.reconnectDelay || 5000; // Try every 5s
   this.transformFun = args.transform || function(a) {return a};
 
   this.connectionCount = 0;
   this.connectionAttempts = 0; // Cleared after each connection
   this.messageBuffer = new MessageBuffer(args.offlineBuffer || 100);
   this.shouldTryReconnect = false;
+  
+  this.connect = this.connect.bind(this);
+
+  this.backoff = new backoff.Backoff(makeStrategy(args.backoffStrategy));
+
+  this.backoff.failAfter(args.retryNum || 10);
+
+  this.backoff.on('ready', this.connect);
+
+  this.backoff.on('fail', function(){
+    self.shouldTryReconnect = false;
+  });
+  
   EventEmitter.call(this);
+
   process.nextTick(this.connect.bind(this));
 }
 
@@ -100,6 +146,7 @@ BunyanTcpStream.prototype.connect = function() {
     self.socket.on('connect', function() {
       self.connected = true;
       self.connectionAttempts = 0;
+      self.backoff.reset();
       self.emit('connect', ++self.connectionCount);
       if (self.messageBuffer.length()) {
         var dropped = self.messageBuffer.droppedMessageCount();
@@ -117,8 +164,8 @@ BunyanTcpStream.prototype.connect = function() {
       self.connected = false;
       self.emit('disconnect');
       if (self.shouldReconnect()) {
-        var timeout = setTimeout(self.connect.bind(self), self.retryInterval());
-        timeout.unref();
+        self.backoff.backoff();
+        self.emit('retry');
       }
     });
 
@@ -127,12 +174,14 @@ BunyanTcpStream.prototype.connect = function() {
 };
 BunyanTcpStream.prototype.connected = false;
 BunyanTcpStream.prototype.shouldReconnect = function() {return this.shouldTryReconnect;}
-BunyanTcpStream.prototype.retryInterval = function() {
-  return this.reconnectDelay;
-}
 
 function createBunyanStream(args) {
   return new BunyanTcpStream(args);
 }
 
 module.exports.createBunyanStream = createBunyanStream;
+
+//helpers
+function isFn(o){
+  return typeof o === 'function';
+}
